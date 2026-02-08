@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:renderer": "vue-tsc -b && vite build",
+    "build:electron": "npm run build:renderer && electron-builder",
+    "build": "npm run build:electron",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -21,10 +25,50 @@
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.8.1",
     "autoprefixer": "^10.4.23",
+    "concurrently": "^9.2.1",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.12",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
-    "vue-tsc": "^3.1.4"
+    "vue-tsc": "^3.1.4",
+    "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "com.synria.teleop",
+    "productName": "Synria-teleop",
+    "icon": "build/icon.icns",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "app/synria_backend",
+        "to": "synria_backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "afterPack": "electron/afterPack.cjs",
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
   }
 }

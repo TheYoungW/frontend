@@ -269,6 +269,9 @@ import axios from 'axios';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import type { IAgoraRTCClient, IRemoteVideoTrack } from 'agora-rtc-sdk-ng';
 
+const backendBaseUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000';
+const wsBaseUrl = import.meta.env.VITE_BACKEND_WS_URL || backendBaseUrl.replace(/^http/, 'ws');
+
 // --- 类型定义 ---
 interface RobotState {
   joints_deg: number[];
@@ -286,7 +289,7 @@ const config = reactive({
 
 const agora = reactive({
   connected: false,
-  channel: 'synria-teleop',
+  channel: 'synria-teleop1',
   token: '', // 新增 token 字段
   appId: '9a96087f25ad4929ad917710aa6c83fc',
   client: null as IAgoraRTCClient | null,
@@ -514,7 +517,7 @@ const toggleAgora = async () => {
 // --- 常规方法 ---
 const refreshDevices = async () => {
   try {
-    const res = await axios.get('/robots/infos');
+    const res = await axios.get(`${backendBaseUrl}/robots/infos`);
     availableDevices.value = res.data.devices.devices || [];
     const deviceIds = availableDevices.value.map((d: any) => d.device_id);
     if (config.devices[0] && !deviceIds.includes(config.devices[0])) config.devices[0] = '';
@@ -532,9 +535,9 @@ const toggleConnect = async () => {
       const deviceInfo = availableDevices.value.find(d => d.device_id === deviceId);
       if (!deviceInfo) throw new Error("Device not found");
       
-      await axios.post('/robots/connect', { arm_type: deviceInfo.driver_type, device_id: deviceId });
+      await axios.post(`${backendBaseUrl}/robots/connect`, { arm_type: deviceInfo.driver_type, device_id: deviceId });
 
-      const wsUrl = `ws://${window.location.host}/robots/ws/${deviceId}`;
+      const wsUrl = `${wsBaseUrl}/robots/ws/${deviceId}`;
       const ws = new WebSocket(wsUrl);
       websockets.value[i] = ws;
 
