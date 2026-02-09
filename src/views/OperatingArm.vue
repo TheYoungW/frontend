@@ -95,9 +95,18 @@
                     <div class="text-[10px] text-right text-[#86868B] font-mono mt-1">{{ config.speed }}</div>
                   </div>
                 </div>
-                <div v-if="!agora.connected" class="mt-2">
-                  <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1 text-orange-600">频道 Token (可选)</label>
-                  <input v-model="agora.token" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white" placeholder="无需 Token 请留空" />
+                <div v-if="!agora.connected" class="mt-2 space-y-2">
+                  <div>
+                    <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1">App ID 选项</label>
+                    <select v-model="agora.appId" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white">
+                      <option value="9a96087f25ad4929ad917710aa6c83fc">选项一（默认）</option>
+                      <option value="fb538ff53f934d3282b0941db7aadc66">选项二（备用）</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1 text-orange-600">频道 Token (可选)</label>
+                    <input v-model="agora.token" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white" placeholder="无需 Token 请留空" />
+                  </div>
                 </div>
               </div>
 
@@ -150,6 +159,7 @@
               <div v-if="activeCameraIds.length === 0" class="flex flex-col items-center justify-center py-8 text-gray-400">
                 <div class="w-10 h-10 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin mb-2"></div>
                 <p class="text-[10px]">启动摄像头中...</p>
+                <p v-if="cameraError" class="text-[10px] text-red-500 mt-2">{{ cameraError }}</p>
               </div>
             </div>
           </section>
@@ -273,6 +283,7 @@ const availableDevices = ref<any[]>([]);
 const isConnecting = ref(false);
 const isConnected = ref(false);
 const processedCount = ref(0);
+const cameraError = ref('');
 
 // 获取摄像头列表
 const refreshCameras = async () => {
@@ -369,6 +380,7 @@ const toggleAgora = async () => {
   }
 
   try {
+    cameraError.value = '';
     // 1. 创建主 Client (负责指令接收 + 第一路视频)
     const mainClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
     agora.clients.push(mainClient);
@@ -427,7 +439,11 @@ const toggleAgora = async () => {
         }
 
         await client.publish(track);
-      } catch (e) {}
+      } catch (e: any) {
+        const msg = e?.message || '无法访问摄像头'
+        cameraError.value = `启动摄像头失败：${msg}`
+        console.error('[camera] start failed', e)
+      }
     }
 
     agora.connected = true;

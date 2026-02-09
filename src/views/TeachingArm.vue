@@ -10,6 +10,9 @@
         </nav>
       </div>
       <div class="flex items-center space-x-3">
+        <div v-if="agora.connected && agoraStats.updatedAt" class="hidden lg:flex items-center px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
+          RTT {{ agoraStats.rttMs }}ms · Up {{ agoraStats.uplinkKbps }}kbps · Down {{ agoraStats.downlinkKbps }}kbps · Loss {{ agoraStats.packetLoss }}%
+        </div>
         <!-- 声网状态指示 -->
         <div v-if="agora.connected" class="flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
           <span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
@@ -87,14 +90,25 @@
                   </button>
                 </div>
                 <div v-if="agora.connected" class="mt-3">
-                  <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1">频道 ID</label>
-                  <input v-model="agora.channel" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white border border-transparent focus:border-blue-300" placeholder="Enter channel name" />
+                  <div>
+                    <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1">频道 ID</label>
+                    <input v-model="agora.channel" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white border border-transparent focus:border-blue-300" placeholder="Enter channel name" />
+                  </div>
                 </div>
-                <!-- 临时 Token 输入 (可选) -->
-                <div v-if="!agora.connected" class="mt-2">
-                  <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1 text-orange-600">频道 Token (可选)</label>
-                  <input v-model="agora.token" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white border border-transparent focus:border-orange-300" placeholder="无需 Token 请留空" />
-                  <p class="text-[9px] text-gray-400 mt-1">若声网报错 4096，请在此填入临时 Token 或在声网后台关闭证书校验</p>
+                <!-- App ID 与临时 Token 输入 (可选) -->
+                <div v-if="!agora.connected" class="mt-2 space-y-2">
+                  <div>
+                    <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1">App ID 选项</label>
+                    <select v-model="agora.appId" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white border border-transparent focus:border-blue-300">
+                      <option value="9a96087f25ad4929ad917710aa6c83fc">选项一（默认）</option>
+                      <option value="fb538ff53f934d3282b0941db7aadc66">选项二（备用）</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1 text-orange-600">频道 Token (可选)</label>
+                    <input v-model="agora.token" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white border border-transparent focus:border-orange-300" placeholder="无需 Token 请留空" />
+                    <p class="text-[9px] text-gray-400 mt-1">若声网报错 4096，请在此填入临时 Token 或在声网后台关闭证书校验</p>
+                  </div>
                 </div>
               </div>
 
@@ -308,6 +322,14 @@ const websockets = ref<(WebSocket | null)[]>([null, null]);
 const pollingIntervals = ref<any[]>([]);
 const uiUpdateInterval = ref<any>(null);
 const agoraSyncInterval = ref<any>(null); // 新增：声网同步主计时器
+const agoraStatsInterval = ref<any>(null);
+const agoraStats = reactive({
+  rttMs: 0,
+  uplinkKbps: 0,
+  downlinkKbps: 0,
+  packetLoss: 0,
+  updatedAt: 0
+});
 // 支持多路视频
 const remoteVideoTracks = ref<Record<string, IRemoteVideoTrack>>({});
 const remoteVideoEls: Record<string, HTMLVideoElement | null> = {};
@@ -410,10 +432,40 @@ const stopAgoraSync = () => {
   }
 };
 
+const stopAgoraStats = () => {
+  if (agoraStatsInterval.value) {
+    clearInterval(agoraStatsInterval.value);
+    agoraStatsInterval.value = null;
+  }
+};
+
+const startAgoraStats = () => {
+  stopAgoraStats();
+  agoraStatsInterval.value = setInterval(async () => {
+    if (!agora.connected || !agora.client) return;
+    try {
+      const stats: any = await (agora.client as any).getRTCStats?.();
+      if (!stats) return;
+      const rtt = Number(stats.RTT ?? stats.rtt ?? 0);
+      const up = Number(stats.TxBitrate ?? stats.txBitrate ?? stats.TxKBitRate ?? 0);
+      const down = Number(stats.RxBitrate ?? stats.rxBitrate ?? stats.RxKBitRate ?? 0);
+      const loss = Number(stats.PacketLossRate ?? stats.packetLossRate ?? 0);
+      agoraStats.rttMs = Number.isFinite(rtt) ? Math.round(rtt) : 0;
+      agoraStats.uplinkKbps = Number.isFinite(up) ? Math.round(up) : 0;
+      agoraStats.downlinkKbps = Number.isFinite(down) ? Math.round(down) : 0;
+      agoraStats.packetLoss = Number.isFinite(loss) ? Math.round(loss * 100) : 0;
+      agoraStats.updatedAt = Date.now();
+    } catch (e) {
+      // 忽略统计错误
+    }
+  }, 1000);
+};
+
 // --- 声网方法 ---
 const toggleAgora = async () => {
   if (agora.connected) {
     stopAgoraSync();
+    stopAgoraStats();
     // 停止所有远程视频
     Object.values(remoteVideoTracks.value).forEach(track => track.stop());
     remoteVideoTracks.value = {};
@@ -509,6 +561,7 @@ const toggleAgora = async () => {
     
     // 开启打包同步
     startAgoraSync();
+    startAgoraStats();
   } catch (e: any) {
     alert(`声网启动失败: ${e.message}`);
   }
@@ -589,6 +642,7 @@ const disconnectAll = () => {
 onMounted(() => { refreshDevices(); });
 onUnmounted(() => { 
   disconnectAll(); 
+  stopAgoraStats();
   Object.values(remoteVideoTracks.value).forEach(track => track.stop());
   agora.client?.leave(); 
 });
