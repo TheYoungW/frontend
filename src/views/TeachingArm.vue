@@ -298,6 +298,7 @@ interface RobotState {
   button1: boolean;
   button2: boolean;
   ts: number;
+  recv_ms?: number;
 }
 
 // --- 状态 ---
@@ -409,7 +410,8 @@ const startAgoraSync = () => {
             index: i,
             joints_deg: latestStates[i]!.joints_deg,
             gripper: latestStates[i]!.gripper,
-            buttons: [latestStates[i]!.button1, latestStates[i]!.button2]
+            buttons: [latestStates[i]!.button1, latestStates[i]!.button2],
+            recv_ms: latestStates[i]!.recv_ms ?? 0
           });
         }
       }
@@ -425,7 +427,7 @@ const startAgoraSync = () => {
           j: a.joints_deg,
           g: a.gripper,
           b: a.buttons,
-          recv_ms: (a as any).recv_ms ?? 0
+          recv_ms: a.recv_ms ?? 0
         }))
       });
 
