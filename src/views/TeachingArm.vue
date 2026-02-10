@@ -14,6 +14,8 @@
           RTT {{ agoraStats.rttMs }}ms · Up {{ agoraStats.uplinkKbps }}kbps · Down {{ agoraStats.downlinkKbps }}kbps · Loss {{ agoraStats.packetLoss }}%
           <span v-if="agoraStats.transportDelay > 0" class="ml-1 text-blue-600">· NetDelay ~{{ agoraStats.transportDelay }}ms</span>
           <span v-if="agoraStats.end2EndDelay > 0" class="ml-1 text-green-600">· E2E {{ agoraStats.end2EndDelay }}ms</span>
+          <span v-if="pingRttMs !== null" class="ml-1 text-purple-600">· PingRTT {{ pingRttMs }}ms</span>
+          <span v-if="pingOneWayMs !== null" class="ml-1 text-purple-700">· OneWay~ {{ pingOneWayMs }}ms</span>
         </div>
         <div v-if="isConnected && wsLatencyDisplay > 0" class="hidden lg:flex items-center px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
           WS {{ wsLatencyDisplay }}ms
@@ -329,6 +331,9 @@ const pollingIntervals = ref<any[]>([]);
 const uiUpdateInterval = ref<any>(null);
 const agoraSyncInterval = ref<any>(null); // 新增：声网同步主计时器
 const agoraStatsInterval = ref<any>(null);
+const pingInterval = ref<any>(null);
+const pingRttMs = ref<number | null>(null);
+const pingOneWayMs = ref<number | null>(null);
 const wsLatencyMs = reactive<number[]>([0, 0]);
 const wsLastPingAt = reactive<number[]>([0, 0]);
 const agoraStats = reactive({
@@ -463,6 +468,36 @@ const stopAgoraStats = () => {
   }
 };
 
+const stopPingLoop = () => {
+  if (pingInterval.value) {
+    clearInterval(pingInterval.value);
+    pingInterval.value = null;
+  }
+};
+
+const sendPing = () => {
+  if (!agora.connected || !agora.client) return;
+  const client = agora.client as any;
+  const sendFn = client.sendStreamMessage || client.sendCustomReportMessage;
+  if (typeof sendFn !== 'function') return;
+  const payload = JSON.stringify({ t: 'ping', t0: Date.now() });
+  const encoded = new TextEncoder().encode(payload);
+  try {
+    if (agora.dataStreamId !== null) sendFn.call(client, agora.dataStreamId, encoded);
+    else sendFn.call(client, encoded);
+  } catch (e) {
+    // ignore ping error
+  }
+};
+
+const startPingLoop = () => {
+  stopPingLoop();
+  pingInterval.value = setInterval(() => {
+    sendPing();
+  }, 1000);
+  sendPing();
+};
+
 const startAgoraStats = () => {
   stopAgoraStats();
   agoraStatsInterval.value = setInterval(async () => {
@@ -506,12 +541,15 @@ const toggleAgora = async () => {
   if (agora.connected) {
     stopAgoraSync();
     stopAgoraStats();
+    stopPingLoop();
     // 停止所有远程视频
     Object.values(remoteVideoTracks.value).forEach(track => track.stop());
     remoteVideoTracks.value = {};
     await agora.client?.leave();
     agora.connected = false;
     agora.dataStreamId = null;
+    pingRttMs.value = null;
+    pingOneWayMs.value = null;
     return;
   }
 
@@ -569,6 +607,23 @@ const toggleAgora = async () => {
       }
       delete remoteVideoEls[uidStr];
     });
+
+    agora.client.on("stream-message", (_uid: any, data: any) => {
+      if (!data) return;
+      try {
+        const decoded = new TextDecoder().decode(data);
+        const json = JSON.parse(decoded);
+        if (json.t !== 'pong') return;
+        const t0 = Number(json.t0 ?? 0);
+        if (!Number.isFinite(t0) || t0 <= 0) return;
+        const rtt = Math.round(Date.now() - t0);
+        if (!Number.isFinite(rtt) || rtt < 0) return;
+        pingRttMs.value = rtt;
+        pingOneWayMs.value = Math.round(rtt / 2);
+      } catch (e) {
+        // ignore pong parse errors
+      }
+    });
     
     await agora.client.join(agora.appId, agora.channel, agora.token || null, null);
     
@@ -602,6 +657,7 @@ const toggleAgora = async () => {
     // 开启打包同步
     startAgoraSync();
     startAgoraStats();
+    startPingLoop();
   } catch (e: any) {
     alert(`声网启动失败: ${e.message}`);
   }
@@ -696,6 +752,7 @@ onMounted(() => { refreshDevices(); });
 onUnmounted(() => { 
   disconnectAll(); 
   stopAgoraStats();
+  stopPingLoop();
   Object.values(remoteVideoTracks.value).forEach(track => track.stop());
   agora.client?.leave(); 
 });

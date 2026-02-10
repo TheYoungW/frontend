@@ -287,7 +287,8 @@ const agora = reactive({
   clients: [] as IAgoraRTCClient[], // 改为多个 Client
   availableCameras: [] as any[],
   selectedCameras: [] as string[],
-  resolution: '480p' as '480p' | '720p' | '1080p'
+  resolution: '480p' as '480p' | '720p' | '1080p',
+  dataStreamId: null as any | null
 });
 
 const resolutionOptions = [
@@ -423,6 +424,17 @@ const toggleAgora = async () => {
       try {
         const decodedString = new TextDecoder().decode(data);
         const json = JSON.parse(decodedString);
+        if (json.t === 'ping') {
+          const client = mainClient as any;
+          const sendFn = client.sendStreamMessage || client.sendCustomReportMessage;
+          if (typeof sendFn === 'function') {
+            const pong = JSON.stringify({ t: 'pong', t0: json.t0, t1: Date.now() });
+            const encoded = new TextEncoder().encode(pong);
+            if (agora.dataStreamId !== null) sendFn.call(client, agora.dataStreamId, encoded);
+            else sendFn.call(client, encoded);
+          }
+          return;
+        }
         if (json.t === 'sync') {
           const nowMs = Date.now();
           const sendLatencies: number[] = [];
@@ -472,6 +484,14 @@ const toggleAgora = async () => {
 
       const uid = makeCameraUid(deviceId, i);
       await client.join(agora.appId, agora.channel, agora.token || null, uid);
+      if (i === 0) {
+        const mainClientAny = client as any;
+        const createFn = mainClientAny.createDataStream || mainClientAny.createDataStreamWithConfig || mainClientAny._p2pClient?.createDataStream;
+        if (typeof createFn === 'function') {
+          agora.dataStreamId = createFn.call(mainClientAny, { reliable: false, ordered: false });
+          if (typeof agora.dataStreamId !== 'number') agora.dataStreamId = createFn.call(mainClientAny, false, false);
+        }
+      }
 
       try {
         const track = await createCameraTrackFromDevice(deviceId);
@@ -567,6 +587,7 @@ const disconnectAll = () => {
   processedCount.value = 0;
   syncLatencyMs.value = null;
   chainLatencyMs.value = null;
+  agora.dataStreamId = null;
   incomingStates[0] = null; incomingStates[1] = null;
 };
 
