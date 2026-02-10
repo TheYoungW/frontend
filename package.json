@@ -58,7 +58,11 @@
     "mac": {
       "target": [
         "dmg"
-      ]
+      ],
+      "extendInfo": {
+        "NSCameraUsageDescription": "需要访问摄像头用于机器人遥操视频流",
+        "NSMicrophoneUsageDescription": "需要访问麦克风用于语音/音视频功能"
+      }
     },
     "win": {
       "target": [

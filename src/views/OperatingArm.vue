@@ -10,6 +10,9 @@
         </nav>
       </div>
       <div class="flex items-center space-x-3">
+        <div v-if="agora.connected && syncLatencyMs > 0" class="hidden lg:flex items-center px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
+          Sync {{ syncLatencyMs }}ms
+        </div>
         <div v-if="agora.connected" class="flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
           <span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
           <span class="text-xs font-medium text-blue-700">Remote Sync Active</span>
@@ -93,6 +96,12 @@
                     <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1">执行速度 (Speed)</label>
                     <input type="range" v-model.number="config.speed" min="50" max="400" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#0071E3]" />
                     <div class="text-[10px] text-right text-[#86868B] font-mono mt-1">{{ config.speed }}</div>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-bold text-[#86868B] uppercase mb-1">视频清晰度</label>
+                    <select v-model="agora.resolution" @change="updateResolution" class="w-full bg-[#F5F5F7] rounded-lg px-3 py-2 text-xs font-mono outline-none focus:bg-white">
+                      <option v-for="opt in resolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    </select>
                   </div>
                 </div>
                 <div v-if="!agora.connected" class="mt-2 space-y-2">
@@ -276,8 +285,28 @@ const agora = reactive({
   appId: '9a96087f25ad4929ad917710aa6c83fc',
   clients: [] as IAgoraRTCClient[], // 改为多个 Client
   availableCameras: [] as any[],
-  selectedCameras: [] as string[]
+  selectedCameras: [] as string[],
+  resolution: '480p' as '480p' | '720p' | '1080p'
 });
+
+const resolutionOptions = [
+  { label: '流畅 (480p)', value: '480p', config: '480p_1' },
+  { label: '标清 (720p)', value: '720p', config: '720p_1' },
+  { label: '高清 (1080p)', value: '1080p', config: '1080p_1' }
+];
+
+const updateResolution = async () => {
+  const option = resolutionOptions.find(o => o.value === agora.resolution);
+  if (!option) return;
+  
+  for (const track of Object.values(localVideoTracks)) {
+    try {
+      await track.setEncoderConfiguration(option.config as any);
+    } catch (e) {
+      console.error('Failed to set resolution', e);
+    }
+  }
+};
 
 const availableDevices = ref<any[]>([]);
 const isConnecting = ref(false);
@@ -318,6 +347,7 @@ const incomingStates = reactive<(any | null)[]>([null, null]);
 const websockets = ref<(WebSocket | null)[]>([null, null]);
 const localVideoTracks: Record<string, ILocalVideoTrack> = {};
 const activeCameraIds = ref<string[]>([]);
+const syncLatencyMs = ref(0);
 // 多路预览（不要用响应式，避免渲染时触发递归更新）
 const localVideoRefs: Record<string, HTMLVideoElement | null> = {};
 const setLocalVideoRef = (deviceId: string, el: any) => {
@@ -392,6 +422,13 @@ const toggleAgora = async () => {
         const decodedString = new TextDecoder().decode(data);
         const json = JSON.parse(decodedString);
         if (json.t === 'sync') {
+          if (typeof json.ts === 'number') {
+            const nowSec = Date.now() / 1000;
+            const latency = Math.round((nowSec - json.ts) * 1000);
+            if (Number.isFinite(latency) && latency >= 0) {
+              syncLatencyMs.value = latency;
+            }
+          }
           json.arms.forEach((armData: any) => {
             const armIdx = armData.i;
             if ((config.mode === 'single' && armIdx === 0) || config.mode === 'dual') {
@@ -439,6 +476,13 @@ const toggleAgora = async () => {
         }
 
         await client.publish(track);
+
+        const option = resolutionOptions.find(o => o.value === agora.resolution);
+        if (option) {
+          try {
+            await track.setEncoderConfiguration(option.config as any);
+          } catch(e) { console.warn('Set resolution failed', e); }
+        }
       } catch (e: any) {
         const msg = e?.message || '无法访问摄像头'
         cameraError.value = `启动摄像头失败：${msg}`
@@ -505,6 +549,7 @@ const disconnectAll = () => {
   websockets.value = [null, null];
   isConnected.value = false;
   processedCount.value = 0;
+  syncLatencyMs.value = 0;
   incomingStates[0] = null; incomingStates[1] = null;
 };
 

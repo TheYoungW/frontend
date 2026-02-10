@@ -12,6 +12,11 @@
       <div class="flex items-center space-x-3">
         <div v-if="agora.connected && agoraStats.updatedAt" class="hidden lg:flex items-center px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
           RTT {{ agoraStats.rttMs }}ms · Up {{ agoraStats.uplinkKbps }}kbps · Down {{ agoraStats.downlinkKbps }}kbps · Loss {{ agoraStats.packetLoss }}%
+          <span v-if="agoraStats.transportDelay > 0" class="ml-1 text-blue-600">· NetDelay ~{{ agoraStats.transportDelay }}ms</span>
+          <span v-if="agoraStats.end2EndDelay > 0" class="ml-1 text-green-600">· E2E {{ agoraStats.end2EndDelay }}ms</span>
+        </div>
+        <div v-if="isConnected && wsLatencyDisplay > 0" class="hidden lg:flex items-center px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
+          WS {{ wsLatencyDisplay }}ms
         </div>
         <!-- 声网状态指示 -->
         <div v-if="agora.connected" class="flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
@@ -323,11 +328,15 @@ const pollingIntervals = ref<any[]>([]);
 const uiUpdateInterval = ref<any>(null);
 const agoraSyncInterval = ref<any>(null); // 新增：声网同步主计时器
 const agoraStatsInterval = ref<any>(null);
+const wsLatencyMs = reactive<number[]>([0, 0]);
+const wsLastPingAt = reactive<number[]>([0, 0]);
 const agoraStats = reactive({
   rttMs: 0,
   uplinkKbps: 0,
   downlinkKbps: 0,
   packetLoss: 0,
+  end2EndDelay: 0,
+  transportDelay: 0,
   updatedAt: 0
 });
 // 支持多路视频
@@ -336,6 +345,16 @@ const remoteVideoEls: Record<string, HTMLVideoElement | null> = {};
 const videoZoom = ref(1);
 const videoCount = computed(() => Object.keys(remoteVideoTracks.value).length);
 const videoGridEl = ref<HTMLDivElement | null>(null);
+const wsLatencyDisplay = computed(() => {
+  const values =
+    config.mode === 'dual'
+      ? [wsLatencyMs[0] ?? 0, wsLatencyMs[1] ?? 0]
+      : [wsLatencyMs[0] ?? 0];
+  const valid = values.filter((v) => v > 0);
+  if (valid.length === 0) return 0;
+  const avg = valid.reduce((sum, v) => sum + v, 0) / valid.length;
+  return Math.round(avg);
+});
 
 const toNumber = (value: unknown, fallback = 0) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -454,6 +473,22 @@ const startAgoraStats = () => {
       agoraStats.uplinkKbps = Number.isFinite(up) ? Math.round(up) : 0;
       agoraStats.downlinkKbps = Number.isFinite(down) ? Math.round(down) : 0;
       agoraStats.packetLoss = Number.isFinite(loss) ? Math.round(loss * 100) : 0;
+
+      // 获取视频端到端延迟（如果有）和传输延迟
+      const remoteVideoStats = (agora.client as any).getRemoteVideoStats?.() || {};
+      let totalE2E = 0;
+      let totalTransport = 0;
+      let count = 0;
+      Object.values(remoteVideoStats).forEach((s: any) => {
+        const e2e = Number(s.end2EndDelay ?? 0);
+        const transport = Number(s.transportDelay ?? 0) + Number(s.jitterBufferDelay ?? 0);
+        if (e2e > 0) totalE2E += e2e;
+        if (transport > 0) totalTransport += transport;
+        count++;
+      });
+      agoraStats.end2EndDelay = count > 0 && totalE2E > 0 ? Math.round(totalE2E / count) : 0;
+      agoraStats.transportDelay = count > 0 ? Math.round(totalTransport / count) : 0;
+
       agoraStats.updatedAt = Date.now();
     } catch (e) {
       // 忽略统计错误
@@ -597,6 +632,11 @@ const toggleConnect = async () => {
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === 'state') {
+          const now = performance.now();
+          const lastPing = wsLastPingAt[i] ?? 0;
+          if (lastPing > 0) {
+            wsLatencyMs[i] = Math.max(0, Math.round(now - lastPing));
+          }
           const joints = Array.isArray(data.joints_deg) ? data.joints_deg : [];
           const state = {
             joints_deg: joints.map((deg: unknown) => toNumber(deg)),
@@ -612,7 +652,10 @@ const toggleConnect = async () => {
 
       ws.onopen = () => {
         const interval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'get.state' }));
+          if (ws.readyState === WebSocket.OPEN) {
+            wsLastPingAt[i] = performance.now();
+            ws.send(JSON.stringify({ type: 'get.state' }));
+          }
         }, 20); // 50Hz
         pollingIntervals.value[i] = interval;
       };
@@ -635,6 +678,10 @@ const disconnectAll = () => {
   if (uiUpdateInterval.value) { clearInterval(uiUpdateInterval.value); uiUpdateInterval.value = null; }
   isConnected.value = false;
   messageCount.value = 0;
+  wsLatencyMs[0] = 0;
+  wsLatencyMs[1] = 0;
+  wsLastPingAt[0] = 0;
+  wsLastPingAt[1] = 0;
   latestStates[0] = null; latestStates[1] = null;
   displayStates[0] = null; displayStates[1] = null;
 };
