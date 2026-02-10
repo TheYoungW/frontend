@@ -10,8 +10,9 @@
         </nav>
       </div>
       <div class="flex items-center space-x-3">
-        <div v-if="agora.connected && syncLatencyMs > 0" class="hidden lg:flex items-center px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
-          Sync {{ syncLatencyMs }}ms
+        <div v-if="agora.connected" class="flex items-center space-x-2 px-3 py-1 rounded-full bg-white/70 border border-black/[0.08] text-[10px] font-mono text-[#424245]">
+          <span>Sync {{ syncLatencyMs !== null ? syncLatencyMs + 'ms' : '--' }}</span>
+          <span v-if="chainLatencyMs !== null" class="text-blue-600">Chain {{ chainLatencyMs }}ms</span>
         </div>
         <div v-if="agora.connected" class="flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
           <span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
@@ -347,7 +348,8 @@ const incomingStates = reactive<(any | null)[]>([null, null]);
 const websockets = ref<(WebSocket | null)[]>([null, null]);
 const localVideoTracks: Record<string, ILocalVideoTrack> = {};
 const activeCameraIds = ref<string[]>([]);
-const syncLatencyMs = ref(0);
+const syncLatencyMs = ref<number | null>(null);   // 发送→接收延迟
+const chainLatencyMs = ref<number | null>(null);  // 硬件采集→操作端接收延迟
 // 多路预览（不要用响应式，避免渲染时触发递归更新）
 const localVideoRefs: Record<string, HTMLVideoElement | null> = {};
 const setLocalVideoRef = (deviceId: string, el: any) => {
@@ -423,15 +425,21 @@ const toggleAgora = async () => {
         const json = JSON.parse(decodedString);
         if (json.t === 'sync') {
           const nowMs = Date.now();
-          const latencies: number[] = [];
+          const sendLatencies: number[] = [];
+          const chainLatencies: number[] = [];
           json.arms.forEach((armData: any) => {
             const armIdx = armData.i;
+            // send_ms: 示教端发送时的时间戳
+            const sendMs = Number(armData.send_ms ?? 0);
+            if (sendMs > 0 && Number.isFinite(sendMs)) {
+              const lat = Math.round(nowMs - sendMs);
+              if (Number.isFinite(lat)) sendLatencies.push(lat);
+            }
+            // recv_ms: 示教端从硬件读到数据的时间戳
             const recvMs = Number(armData.recv_ms ?? 0);
-            if (recvMs > 0) {
-              const latency = Math.round(nowMs - recvMs);
-              if (Number.isFinite(latency) && latency >= 0) {
-                latencies.push(latency);
-              }
+            if (recvMs > 0 && Number.isFinite(recvMs)) {
+              const lat = Math.round(nowMs - recvMs);
+              if (Number.isFinite(lat)) chainLatencies.push(lat);
             }
             if ((config.mode === 'single' && armIdx === 0) || config.mode === 'dual') {
               incomingStates[armIdx] = {
@@ -442,9 +450,11 @@ const toggleAgora = async () => {
               executeCommand(armIdx, incomingStates[armIdx].data);
             }
           });
-          if (latencies.length > 0) {
-            const avg = latencies.reduce((sum, v) => sum + v, 0) / latencies.length;
-            syncLatencyMs.value = Math.round(avg);
+          if (sendLatencies.length > 0) {
+            syncLatencyMs.value = Math.round(sendLatencies.reduce((s, v) => s + v, 0) / sendLatencies.length);
+          }
+          if (chainLatencies.length > 0) {
+            chainLatencyMs.value = Math.round(chainLatencies.reduce((s, v) => s + v, 0) / chainLatencies.length);
           }
         }
       } catch (e) {}
@@ -555,7 +565,8 @@ const disconnectAll = () => {
   websockets.value = [null, null];
   isConnected.value = false;
   processedCount.value = 0;
-  syncLatencyMs.value = 0;
+  syncLatencyMs.value = null;
+  chainLatencyMs.value = null;
   incomingStates[0] = null; incomingStates[1] = null;
 };
 

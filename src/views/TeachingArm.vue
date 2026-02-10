@@ -418,16 +418,18 @@ const startAgoraSync = () => {
 
       if (activeArms.length === 0) return;
 
+      const sendMs = Date.now();
       const payload = JSON.stringify({
-        t: 'sync', // robot_teleop_sync
-        ts_ms: Date.now(),
+        t: 'sync',
+        ts_ms: sendMs,
         m: config.mode === 'dual' ? 'd' : 's',
         arms: activeArms.map(a => ({
           i: a.index,
           j: a.joints_deg,
           g: a.gripper,
           b: a.buttons,
-          recv_ms: a.recv_ms ?? 0
+          recv_ms: a.recv_ms ?? 0,
+          send_ms: sendMs
         }))
       });
 
