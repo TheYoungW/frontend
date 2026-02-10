@@ -418,13 +418,14 @@ const startAgoraSync = () => {
 
       const payload = JSON.stringify({
         t: 'sync', // robot_teleop_sync
-        ts: Date.now() / 1000,
+        ts_ms: Date.now(),
         m: config.mode === 'dual' ? 'd' : 's',
         arms: activeArms.map(a => ({
           i: a.index,
           j: a.joints_deg,
           g: a.gripper,
-          b: a.buttons
+          b: a.buttons,
+          recv_ms: (a as any).recv_ms ?? 0
         }))
       });
 
@@ -643,7 +644,8 @@ const toggleConnect = async () => {
             gripper: toNumber(data.gripper),
             button1: Boolean(data.button1),
             button2: Boolean(data.button2),
-            ts: toNumber(data.ts)
+            ts: toNumber(data.ts),
+            recv_ms: Date.now()
           };
           latestStates[i] = state;
           messageCount.value++;

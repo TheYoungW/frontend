@@ -422,15 +422,17 @@ const toggleAgora = async () => {
         const decodedString = new TextDecoder().decode(data);
         const json = JSON.parse(decodedString);
         if (json.t === 'sync') {
-          if (typeof json.ts === 'number') {
-            const nowSec = Date.now() / 1000;
-            const latency = Math.round((nowSec - json.ts) * 1000);
-            if (Number.isFinite(latency) && latency >= 0) {
-              syncLatencyMs.value = latency;
-            }
-          }
+          const nowMs = Date.now();
+          const latencies: number[] = [];
           json.arms.forEach((armData: any) => {
             const armIdx = armData.i;
+            const recvMs = Number(armData.recv_ms ?? 0);
+            if (recvMs > 0) {
+              const latency = Math.round(nowMs - recvMs);
+              if (Number.isFinite(latency) && latency >= 0) {
+                latencies.push(latency);
+              }
+            }
             if ((config.mode === 'single' && armIdx === 0) || config.mode === 'dual') {
               incomingStates[armIdx] = {
                 data: { joints_deg: armData.j, gripper: armData.g, buttons: armData.b },
@@ -440,6 +442,10 @@ const toggleAgora = async () => {
               executeCommand(armIdx, incomingStates[armIdx].data);
             }
           });
+          if (latencies.length > 0) {
+            const avg = latencies.reduce((sum, v) => sum + v, 0) / latencies.length;
+            syncLatencyMs.value = Math.round(avg);
+          }
         }
       } catch (e) {}
     });
