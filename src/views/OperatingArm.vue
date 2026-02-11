@@ -177,12 +177,12 @@
 
         <!-- 右侧内容区域 -->
         <div class="flex-1 min-w-0">
-          <div v-if="!isConnected" class="h-full flex flex-col items-center justify-center min-h-[500px] bg-white rounded-[3rem] shadow-[0_8px_40px_rgb(0,0,0,0.04)] border border-black/[0.03]">
+          <div v-if="!isViewReady" class="h-full flex flex-col items-center justify-center min-h-[500px] bg-white rounded-[3rem] shadow-[0_8px_40px_rgb(0,0,0,0.04)] border border-black/[0.03]">
             <div class="w-20 h-20 bg-[#F5F5F7] rounded-3xl flex items-center justify-center mb-6 text-[#86868B]">
               <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
             <p class="text-xl font-semibold tracking-tight">操作臂遥控中心</p>
-            <p class="text-[#86868B] mt-2 px-6 text-center text-sm">请连接本地操作臂，并开启同步以接收远程示教指令。</p>
+            <p class="text-[#86868B] mt-2 px-6 text-center text-sm">可先开启远程同步测试延迟；连接本地操作臂后才会执行真实控制。</p>
           </div>
 
           <div v-else class="grid grid-cols-1 gap-8">
@@ -196,7 +196,7 @@
                     </div>
                     <div>
                       <h3 class="font-bold text-lg leading-tight">{{ config.mode === 'dual' ? (idx === 0 ? '左操作臂 (Left)' : '右操作臂 (Right)') : '远程遥操指令' }}</h3>
-                      <p class="text-xs text-[#86868B] font-mono mt-0.5">执行设备: {{ config.devices[idx] }}</p>
+                      <p class="text-xs text-[#86868B] font-mono mt-0.5">执行设备: {{ config.devices[idx] || '测试模式（未连接本地机械臂）' }}</p>
                     </div>
                   </div>
                   <div class="flex items-center space-x-2">
@@ -315,6 +315,7 @@ const isConnecting = ref(false);
 const isConnected = ref(false);
 const processedCount = ref(0);
 const cameraError = ref('');
+const isViewReady = computed(() => isConnected.value || agora.connected);
 
 // 获取摄像头列表
 const refreshCameras = async () => {
